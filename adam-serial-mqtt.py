@@ -111,8 +111,40 @@ class adam4017:
 	command = (command + checksum + '\r')
 	logger.info('Command: ' + command)
 
-        return float(self.send(command)[2:8])
+        response = self.send(command)
 
+        # The response should start with a >
+        # and have a length of 8 bytes + checksum + (cr)
+
+        try:
+            start = response.index('>')
+            end = response.index('\r')
+    
+            logger.debug('Start index: ' + str(start))
+            logger.debug('End index: ' + str(end))
+    
+            response_checksum = response[end - 2:end]
+            logger.info('Response checksum: ' + response_checksum)
+    
+            response_data = response[start:end - 2]
+            logger.info('Response data: ' + response_data)
+    
+            computed_checksum = self.computeChecksum(response_data)
+            logger.info('Computed checksum: ' + computed_checksum)      
+     
+            if (int(response_checksum,16) != int(computed_checksum,16)):
+                logger.warning('Checksum mismatch')
+                return -1
+            else:
+                logger.info('Checksum passed')
+                
+                data =  float(response[start + 1:8])
+                logger.info('Extracted data: ' + str(data))
+                return data
+        except:
+            logger.warning('Invalid data received')
+            return -1
+    
     def readConfiguration(self):
         command = ('$' + self.address + '2')
     
