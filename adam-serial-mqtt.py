@@ -17,191 +17,98 @@
 import serial
 import io
 import time
+import datetime
 
 import argparse
+import configparser
+
 
 import paho.mqtt.client as mqtt
 import logging
 
-logging.basicConfig(level=logging.INFO)
+from adam4000 import adam4017
+
+#logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+#logger.setLevel(logging.INFO)
+
+# create a file handler
+handler = logging.FileHandler('adamRead.log')
+handler.setLevel(logging.INFO)
+
+# create a logging format
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+
+# add the handlers to the logger
+logger.addHandler(handler)
+
+
 
 def main():
+    try:
+        config = configparser.ConfigParser()
+        config.read('adamread.conf')
 
-    print("Analog inputs:")	
+        now = datetime.datetime.now()
 
-    logger.info('Creating instance of ADAM4017 class.')
-    sensor = adam4017('/dev/ttyUSB1',1)
+        logger.info('Program executed at: %s ' % now.isoformat())
 
-    mqttc = mqtt.Client()
+        adam4000conf = config['ADAM4000']
+        logger.info('Creating instance of ADAM4017 class.')
+        sensor = adam4017(adam4000conf['serial_port'],int(adam4000conf['device_addr']))
 
-    print('Configuration: ' + sensor.readConfiguration())	
-    print('Firmware version: ' + sensor.readFirmwareVersion())	
-    print('Module name: ' + sensor.readModuleName())	
-    
-    print('AI0: ' + str(sensor.readAnalogIn(0)))
-    print('AI1: ' + str(sensor.readAnalogIn(1)))
-    print('AI2: ' + str(sensor.readAnalogIn(2)))
-    print('AI3: ' + str(sensor.readAnalogIn(3)))
+        logger.info('Creating MQTT instance')
+        mqttc = mqtt.Client()
 
-    logger.info('Connecting to MQTT')
-    mqttc.connect("localhost")
-    mqttc.loop_start()
-
-    while True:
-      
-        # Refrigerator A: 
-        humidity = (sensor.readAnalogIn(0)-4) * 6.25
-        logger.info('Humid A: ' + str(humidity))
-       
-        temperature = -40 + (sensor.readAnalogIn(1)-4) * 7.5
-
-        logger.info('Temp A: ' + str(temperature))
+        print('Configuration: ' + sensor.readConfiguration())	
+        print('Firmware version: ' + sensor.readFirmwareVersion())	
+        print('Module name: ' + sensor.readModuleName())	
         
-        mqttc.publish("adam4017/temperatureA", temperature)
-        mqttc.publish("adam4017/humidityA", humidity)
+        print('AI0: ' + str(sensor.readAnalogIn(0)))
+        print('AI1: ' + str(sensor.readAnalogIn(1)))
+        print('AI2: ' + str(sensor.readAnalogIn(2)))
+        print('AI3: ' + str(sensor.readAnalogIn(3)))
 
-        # Refrigerator B: 
-        humidity = (sensor.readAnalogIn(2)-4) * 6.25
-        logger.info('Humid B: ' + str(humidity))
-       
-        temperature = -40 + (sensor.readAnalogIn(3)-4) * 7.5
+        mqttconf = config['MQTT']
+        logger.info('Connecting to MQTT')
+        mqttc.connect(mqttconf['address'])
+        mqttc.loop_start()
 
-        logger.info('Temp B: ' + str(temperature))
-        
-        mqttc.publish("adam4017/temperatureB", temperature)
-        mqttc.publish("adam4017/humidityB", humidity)
-       
-        time.sleep(1)
-
-
-class adam4017:
-    def __init__(self, serialPort, address):
-        self.serialPort = serialPort
-        self.address = address
-
-	self.ser = serial.Serial('/dev/ttyUSB1', timeout=0.1)
-	
-	#ser = serial.rs485.RS485('/dev/ttyUSB1', timeout=0.1)
-	#ser.rs485_mode = serial.rs485.RS485Settings()
-	
-	self.ser.bytesize = serial.EIGHTBITS #number of bits per bytes
-	self.ser.parity = serial.PARITY_NONE #set parity check: no parity
-	self.ser.stopbits = serial.STOPBITS_ONE #number of stop bits
-	self.ser.xonxoff = False    #disable software flow control
-	self.ser.rtscts = False    #disable hardware (RTS/CTS) flow control
-	self.ser.dsrdtr = False       #disable hardware (DSR/DTR) flow control
-	self.ser.writeTimeout = 2     #timeout for write
-	
-	self.ser.baudrate = 9600
-
-    	self.address = hex(address).replace("0x","")
-    	self.address = "0" + self.address.upper()	
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-	self.ser.close()
+        while True:
+          
+            # Refrigerator A: 
+            humidity = (sensor.readAnalogIn(0)-4) * 6.25
+            logger.info('Humid A: ' + str(humidity))
+           
+            temperature = -40 + (sensor.readAnalogIn(1)-4) * 7.5
     
-    def readAnalogIn(self, port):
-    	command = ('#' + self.address + str(port))
-    	
-        checksum = self.computeChecksum(command)	
-	command = (command + checksum + '\r')
-	logger.info('Command: ' + command)
-
-        response = self.send(command)
-
-        # The response should start with a >
-        # and have a length of 8 bytes + checksum + (cr)
-
-        try:
-            start = response.index('>')
-            end = response.index('\r')
+            logger.info('Temp A: ' + str(temperature))
+            
+            mqttc.publish("adam4017/temperatureA", temperature)
+            mqttc.publish("adam4017/humidityA", humidity)
     
-            logger.debug('Start index: ' + str(start))
-            logger.debug('End index: ' + str(end))
+            # Refrigerator B: 
+            humidity = (sensor.readAnalogIn(2)-4) * 6.25
+            logger.info('Humid B: ' + str(humidity))
+           
+            temperature = -40 + (sensor.readAnalogIn(3)-4) * 7.5
     
-            response_checksum = response[end - 2:end]
-            logger.info('Response checksum: ' + response_checksum)
-    
-            response_data = response[start:end - 2]
-            logger.info('Response data: ' + response_data)
-    
-            computed_checksum = self.computeChecksum(response_data)
-            logger.info('Computed checksum: ' + computed_checksum)      
-     
-            if (int(response_checksum,16) != int(computed_checksum,16)):
-                logger.warning('Checksum mismatch')
-                return -1
-            else:
-                logger.info('Checksum passed')
-                
-                data =  float(response[start + 1:8])
-                logger.info('Extracted data: ' + str(data))
-                return data
-        except:
-            logger.warning('Invalid data received')
-            return -1
-    
-    def readConfiguration(self):
-        command = ('$' + self.address + '2')
-    
-        # Response is !AATTCCFF(cr)
-        # Where AA is module address
-	
-        checksum = self.computeChecksum(command)	
-	command = (command + checksum + '\r')
-	logger.info('Command: ' + command)
-        return self.send(command)
+            logger.info('Temp B: ' + str(temperature))
+            
+            mqttc.publish("adam4017/temperatureB", temperature)
+            mqttc.publish("adam4017/humidityB", humidity)
+           
+            time.sleep(1)
 
-    def readFirmwareVersion(self):
-        logging.info('Enquiring firmware version')
-        command = ('$' + self.address + 'F')
-    	
-        checksum = self.computeChecksum(command)	
-	command = (command + checksum + '\r')
-	
-        logger.info('Command: ' + command)
-       
-        return self.send(command)
+    except KeyError:
+        logger.error('Invalid configuration file')
+    except:
+        raise
 
-    def readModuleName(self):
-        logging.info('Enquiring module name')
-        command = ('$' + self.address + 'M')
-    	
-        checksum = self.computeChecksum(command)	
-	command = (command + checksum + '\r')
-	logger.info('Command: ' + command)
-
-        return self.send(command)
-
-    def send(self, data):
-        logger.info('Sending command to module')
-	self.ser.rts = True
-	self.ser.write(data)
-
-        # Sleep the time it takes for the UART to transmit the data 	
-	time.sleep(0.008)
-	self.ser.rts = False
-
-        response = self.ser.readline()
-        logger.info('RAW: ' + response)
-	return response
-
-
-    def computeChecksum(self, data):
-	checksum = 0
-        for code in bytearray(data):
-		checksum += code
-	checksum = checksum % 0x100
- 
-	logger.debug('Checksum: ' + str(checksum))
-	logger.debug('Checksum: ' + str(hex(checksum)))
-	       
-        return str(hex(checksum)).replace("0x","").upper() 
 
 if __name__ == '__main__':
-	main()
-
+    try:
+        main()
+    except KeyboardInterrupt:
+        logger.info('Keyboard interrupt')
