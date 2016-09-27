@@ -1,4 +1,6 @@
 #!/usr/bin/python
+# -*- coding: utf-8 -*-
+
 # Communication script for ADAM4017 using ADAM4561 USB to RS485 converter
 # 
 # TODO: Add support for the other modules in the ADAM 4000 series
@@ -43,10 +45,11 @@ import logging
 #logger.addHandler(handler)
 #
 
-logger = logging.getLogger(__name__) 
-
 class adam4017:
-    def __init__(self, serialPort, address):
+    def __init__(self, serialPort, address, logger=None):
+        self.logger = logger or logging.getLogger(__name__)#.addHandler(logging.NullHandler()) 
+        self.logger.setLevel(logging.INFO)
+
         self.serialPort = serialPort
         self.address = address
 
@@ -70,7 +73,9 @@ class adam4017:
             self.address = "0" + self.address.upper()	
 
         except serial.serialutil.SerialException:
-            logger.error('Could not open serial port')
+            self.logger.error('Could not open serial port')
+        except:
+            raise
 
     def __enter__(self):
         return self
@@ -83,7 +88,7 @@ class adam4017:
     	
         checksum = self.computeChecksum(command)	
 	command = (command + checksum + '\r')
-	logger.info('Command: ' + command)
+	self.logger.info('Command: ' + command)
 
         response = self.send(command)
 
@@ -94,29 +99,29 @@ class adam4017:
             start = response.index('>')
             end = response.index('\r')
     
-            logger.debug('Start index: ' + str(start))
-            logger.debug('End index: ' + str(end))
+            self.logger.debug('Start index: ' + str(start))
+            self.logger.debug('End index: ' + str(end))
     
             response_checksum = response[end - 2:end]
-            logger.info('Response checksum: ' + response_checksum)
+            self.logger.info('Response checksum: ' + response_checksum)
     
             response_data = response[start:end - 2]
-            logger.info('Response data: ' + response_data)
+            self.logger.info('Response data: ' + response_data)
     
             computed_checksum = self.computeChecksum(response_data)
-            logger.info('Computed checksum: ' + computed_checksum)      
+            self.logger.info('Computed checksum: ' + computed_checksum)      
      
             if (int(response_checksum,16) != int(computed_checksum,16)):
-                logger.warning('Checksum mismatch')
+                self.logger.warning('Checksum mismatch')
                 return -1
             else:
-                logger.info('Checksum passed')
+                self.logger.info('Checksum passed')
                 
                 data =  float(response[start + 1:8])
-                logger.info('Extracted data: ' + str(data))
+                self.logger.info('Extracted data: ' + str(data))
                 return data
         except:
-            logger.warning('Invalid data received')
+            self.logger.warning('Invalid data received')
             return -1
     
     def readConfiguration(self):
@@ -127,43 +132,44 @@ class adam4017:
 	
         checksum = self.computeChecksum(command)	
 	command = (command + checksum + '\r')
-	logger.info('Command: ' + command)
+	self.logger.info('Command: ' + command)
         return self.send(command)
 
     def readFirmwareVersion(self):
-        logging.info('Enquiring firmware version')
+        self.logger.info('Enquiring firmware version')
         command = ('$' + self.address + 'F')
     	
         checksum = self.computeChecksum(command)	
 	command = (command + checksum + '\r')
 	
-        logger.info('Command: ' + command)
+        self.logger.info('Command: ' + command)
        
         return self.send(command)
 
     def readModuleName(self):
-        logging.info('Enquiring module name')
+        self.logger.info('Enquiring module name')
         command = ('$' + self.address + 'M')
     	
         checksum = self.computeChecksum(command)	
 	command = (command + checksum + '\r')
-	logger.info('Command: ' + command)
+	self.logger.info('Command: ' + command)
 
         return self.send(command)
 
     def send(self, data):
-        logger.info('Sending command to module')
-        logger.debug('Enabling line driver')
+        self.logger.info('Sending command to module')
+        self.logger.debug('Enabling line driver')
 	self.ser.rts = True
 	self.ser.write(data)
 
         # Sleep the time it takes for the UART to transmit the data 	
-	time.sleep(0.008)
-        logger.debug('Disabling line driver')
+#	time.sleep(0.008)
+        time.sleep(0.008)
+        self.logger.debug('Disabling line driver')
 	self.ser.rts = False
 
         response = self.ser.readline()
-        logger.info('RAW data response: ' + response)
+        self.logger.info('RAW data response: ' + response)
 	return response
 
 
@@ -173,8 +179,8 @@ class adam4017:
 		checksum += code
 	checksum = checksum % 0x100
  
-	logger.debug('Checksum: ' + str(checksum))
-	logger.debug('Checksum: ' + str(hex(checksum)))
+	self.logger.debug('Checksum: ' + str(checksum))
+	self.logger.debug('Checksum: ' + str(hex(checksum)))
 	       
         return str(hex(checksum)).replace("0x","").upper() 
 
